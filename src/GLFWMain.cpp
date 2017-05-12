@@ -1,8 +1,11 @@
 #include <stdlib.h>     // atoi
-
+#include <thread>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "GLFW/glfw3.h"
+
+#define GL_BGR					0x80E0
+#define GL_BGRA					0x80E1
 
 #include "ps3eye.h"
 
@@ -18,6 +21,10 @@ using namespace std;
 using namespace cv;
 
 // global structs
+
+
+
+PS3EYECam::PS3EYERef eye;
 
 struct PS3EyeParameters {
  
@@ -83,9 +90,8 @@ struct PS3EyeParameters {
 SimpleBlobDetector::Params blobDetectorParams;
 
 // Global vars
-
 GLFWwindow* window;
-PS3EYECam::PS3EYERef eye;
+
 
 struct GLTexture {
 
@@ -148,9 +154,9 @@ struct GLTexture {
 
     glBegin( GL_QUADS ); 
       glTexCoord2f( 0.f, 0.f ); glVertex2f( x, y ); 
-      glTexCoord2f( u, 0.f ); glVertex2f( x + w, y ); 
-      glTexCoord2f( u, v ); glVertex2f( x + w, y + h); 
-      glTexCoord2f( 0.f, v ); glVertex2f( x, y + h ); 
+      glTexCoord2f( u, 0.f ); glVertex2f( x + width, y ); 
+      glTexCoord2f( u, v ); glVertex2f( x + width, y + height); 
+      glTexCoord2f( 0.f, v ); glVertex2f( x, y + height ); 
     glEnd();
 
     glBindTexture( GL_TEXTURE_2D, 0 );
@@ -227,6 +233,48 @@ void terminateOpenGL()
   ImGui_ImplGlfw_Shutdown();
   glfwTerminate();
 
+}
+
+
+
+void openCVThreadFunc()
+{
+
+  Mat bayerRaw( Size(cameraParameters.height, cameraParameters.width), CV_8UC1 ); 
+  
+  Mat GreyImage( Size(cameraParameters.height, cameraParameters.width), CV_8UC1 );
+
+  // BGR !!!
+  Mat ProcessedImage( Size(cameraParameters.height, cameraParameters.width), CV_8UC3 );
+  
+  texture.data = ProcessedImage.data;
+  
+  SimpleBlobDetector detector(blobDetectorParams);
+  
+  while ( eye->isStreaming() ) {
+    eye->getFrame( (uint8_t*)bayerRaw.data );
+
+    //cvtColor( bayerRaw, RGBImage, CV_BayerGB2RGB );
+    cvtColor( bayerRaw, GreyImage, CV_BayerGB2GRAY );    
+    
+    // Storage for blobs
+    std::vector<KeyPoint> keypoints;
+
+    // Detect blobs
+    detector.detect( GreyImage, keypoints);
+
+    drawKeypoints( GreyImage, keypoints, ProcessedImage, Scalar(0,0,255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS );
+    
+  }
+
+}
+
+
+
+void startOpenCVThread()
+{
+	std::thread cv_thread(openCVThreadFunc);
+  cv_thread.detach();
 }
 
 void createGUI()
@@ -363,7 +411,9 @@ void createGUI()
 
       ImGui::DragFloat("Threshold step", &blobDetectorParams.thresholdStep);
       
-      ImGui::DragInt("Minimum Repeatability", &blobDetectorParams.minRepeatability);
+      int minRepeatability;
+	  ImGui::DragInt("Minimum Repeatability", &minRepeatability);
+	  blobDetectorParams.minRepeatability = minRepeatability;
       
       ImGui::DragFloat("Minimum Distance Between Blobs", &blobDetectorParams.minDistBetweenBlobs);
 
@@ -436,43 +486,6 @@ void findCamera()
 }
 
 
-void startOpenCVThread()
-{
-	std::thread cv_thread(openCVThreadFunc);
-  cv_thread.detach();
-}
-
-void openCVThreadFunc()
-{
-
-  Mat bayerRaw( Size(cameraParameters.height, cameraParameters.width), CV_8UC1 ); 
-  
-  Mat GreyImage( Size(cameraParameters.height, cameraParameters.width), CV_8UC1 );
-
-  // BGR !!!
-  Mat ProcessedImage( Size(cameraParameters.height, cameraParameters.width), CV_8UC3 );
-  
-  texture.data = ProcessedImage.data;
-  
-  SimpleBlobDetector detector(blobDetectorParams);
-  
-  while ( eye->isStreaming() ) {
-    eye->getFrame( (uint8_t*)bayerRaw.data );
-
-    //cvtColor( bayerRaw, RGBImage, CV_BayerGB2RGB );
-    cvtColor( bayerRaw, GreyImage, CV_BayerGB2GRAY );    
-    
-    // Storage for blobs
-    std::vector<KeyPoint> keypoints;
-
-    // Detect blobs
-    detector.detect( GreyImage, keypoints);
-
-    drawKeypoints( GreyImage, keypoints, ProcessedImage, Scalar(0,0,255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS );
-    
-  }
-
-}
 
 
 int main(int, char**)
