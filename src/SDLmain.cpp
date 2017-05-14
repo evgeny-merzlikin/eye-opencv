@@ -36,6 +36,7 @@ void create_texture( GLuint* TextureID, GLint TextureFormat);
 void update_texture( GLuint TextureID, GLint TextureFormat, GLvoid* pixels);
 void render_texture( GLuint TextureID );
 void delete_texture( GLuint* TextureID );
+void opencvThreadFunc();
 
 void createGUI();
 
@@ -101,11 +102,9 @@ struct GUI_context {
 
 GUI_context*			gui;
 ps3eye_context*			ctx;
-uint8_t*				video_framebuf = NULL;
-uint8_t*				sample_buf = NULL;
+uint8_t*				video_framebuf = nullptr;
 GLuint					BayerTexture_ID = 0;
-Mat*					BayerMat;
-Mat*					GrayMat;
+
 
 
 void run_camera(int width, int height, int fps)
@@ -113,7 +112,7 @@ void run_camera(int width, int height, int fps)
     
 	double angle = 0;
 	bool autocontrols = true;
-	size_t frame_size;
+
 	
 	if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_TIMER) < 0) {
 		err("Failed to initialize SDL: %s\n", SDL_GetError());
@@ -151,7 +150,7 @@ void run_camera(int width, int height, int fps)
     SDL_GLContext glcontext = SDL_GL_CreateContext(window);
 
 
-	glViewport( 0.f, 0.f, (int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y ); //Initialize Projection Matrix 
+	glViewport( 0, 0, (int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y ); //Initialize Projection Matrix 
 	glMatrixMode( GL_PROJECTION ); 
 	glLoadIdentity(); 
 	glOrtho( 0.0, (int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y, 0.0, 1.0, -1.0 ); 
@@ -176,9 +175,10 @@ void run_camera(int width, int height, int fps)
 	// start camera thread
 	ctx->eye->start();
 	ctx->running = true;
-
-	BayerMat = new Mat( height, width, CV_8UC1);  
-	GrayMat = new Mat( height, width, CV_8UC1); 
+	thread t = thread(opencvThreadFunc);
+	//t.detach();
+	//BayerMat = new Mat( height, width, CV_8UC1);  
+	//GrayMat = new Mat( height, width, CV_8UC1); 
 	//BayerMat->setTo(Scalar(5));
 	//frame_size = width * height * 3;
 	
@@ -197,7 +197,12 @@ void run_camera(int width, int height, int fps)
             ImGui_ImplSdl_ProcessEvent(&event);
 
             if (event.type == SDL_QUIT)
+			{
                 ctx->running = false;
+				ctx->eye->stop();
+				
+
+			}
 
 			if (event.type == SDL_KEYUP) 
 			{
@@ -214,11 +219,11 @@ void run_camera(int width, int height, int fps)
         
 
 		// process frame
-		ctx->eye->getFrame( (uint8_t*)BayerMat->data );
+		//ctx->eye->getFrame( (uint8_t*)BayerMat->data );
 		//ctx->eye->getFrame( video_framebuf );
-		cvtColor(*BayerMat, *GrayMat, CV_BayerGB2GRAY);
+		//cvtColor(*BayerMat, *GrayMat, CV_BayerGB2GRAY);
 		
-		update_texture( BayerTexture_ID, GL_LUMINANCE, (GLvoid*)GrayMat->data );
+		//update_texture( BayerTexture_ID, GL_LUMINANCE, (GLvoid*)GrayMat->data );
 
 		//update_texture( BayerTexture_ID, GL_LUMINANCE, (GLvoid*)video_framebuf );
 
@@ -235,30 +240,36 @@ void run_camera(int width, int height, int fps)
         //ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiSetCond_FirstUseEver);
         //ImGui::ShowTestWindow(&show_test_window);
 
-        // Rendering
+        
 
 		createGUI();
+		
+		if ( video_framebuf )
+			update_texture( BayerTexture_ID, GL_LUMINANCE, (GLvoid*)video_framebuf );
 
         glViewport(0, 0, (int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y);
         glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
         glClear(GL_COLOR_BUFFER_BIT);
 		
-
-
-		render_texture(BayerTexture_ID);
-        ImGui::Render();
+		// Rendering
+		if ( video_framebuf )		
+			render_texture(BayerTexture_ID);
+        
+		ImGui::Render();
 		
 
 		//swap windows buffer
         SDL_GL_SwapWindow(window);
     }
 
-	// stop camera thread
-	ctx->eye->stop();
-	delete(ctx);
-	delete(gui);
+	
+	
+	if (t.joinable()) 
+		t.join();
 
-	delete(BayerMat);
+	delete(gui);
+	delete(ctx);
+	//delete(BayerMat);
 	delete_texture(&BayerTexture_ID);
 
 	//deallocate video framebuffer
@@ -322,7 +333,7 @@ void update_texture( GLuint TextureID, GLint TextureFormat, GLvoid* pixels )
 
 void render_texture( GLuint TextureID ) {
 	 //Set the viewport 
-	glViewport( 0.f, 0.f, (int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y ); //Initialize Projection Matrix 
+	glViewport( 0, 0, (int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y ); //Initialize Projection Matrix 
 	glMatrixMode( GL_PROJECTION ); 
 	glLoadIdentity(); 
 	glOrtho( 0.0, (int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y, 0.0, 1.0, -1.0 ); 
@@ -406,6 +417,24 @@ int main(int argc, char *argv[])
 	SDL_Quit();
 
     return EXIT_SUCCESS;
+}
+
+
+void opencvThreadFunc()
+{
+	Mat BayerMat( ctx->height, ctx->width, CV_8UC1);  
+	Mat GrayMat( ctx->height, ctx->width, CV_8UC1); 
+	Mat BgrMat( ctx->height, ctx->width, CV_8UC3); 
+
+	while (ctx->running)
+	{
+		ctx->eye->getFrame( (uint8_t*)BayerMat.data );
+		//ctx->eye->getFrame( video_framebuf );
+		cvtColor(BayerMat, GrayMat, CV_BayerGB2GRAY);
+		video_framebuf = GrayMat.data;
+	}
+
+	video_framebuf = nullptr;
 }
 
 

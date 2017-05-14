@@ -158,12 +158,12 @@ public:
     bool getFlipH() { 
 		uint8_t val = sccb_reg_read(0x0c);
         val &= ~0xc0;
-        return (val |= 0x40);
+        return !!(val |= 0x40);
 	}
     bool getFlipV() { 
 		uint8_t val = sccb_reg_read(0x0c);
         val &= ~0xc0;
-        return (val |= 0x80);
+        return !!(val |= 0x80);
 	}
 	void setFlip(bool horizontal = false, bool vertical = false) {
 		uint8_t val = sccb_reg_read(0x0c);
