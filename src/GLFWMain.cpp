@@ -4,9 +4,9 @@
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "ps3eye.h"
-#include "opencv2/opencv.hpp"
-
-#include <GL/glew.h>
+#include "opencv2/core.hpp"
+#include "opencv2/imgproc.hpp"
+#include "GL/glew.h"
 #include "GLFW/glfw3.h"
 
 #define IM_ARRAYSIZE(_ARR)  ((int)(sizeof(_ARR)/sizeof(*_ARR)))
@@ -47,7 +47,7 @@ struct PS3EyeParameters {
   int view_mode;
   bool startStreaming;
 
-  shared_ptr<Mat> bayerRAW8;
+  shared_ptr<Mat> bayerRAW8, bayerRAW16;
 
   void update( bool updateAll = false ) 
   {
@@ -112,7 +112,15 @@ struct GLTexture {
 	channels = _channels;
 	GLenum err;
 
-	imagePtr = make_shared<Mat>(dataHeight, dataWidth, CV_MAKETYPE(CV_8U,channels));
+	switch (type) {
+	case GL_UNSIGNED_BYTE:
+		imagePtr = make_shared<Mat>(dataHeight, dataWidth, CV_MAKETYPE(CV_8U,channels));
+		break;
+
+	case GL_UNSIGNED_SHORT:
+		imagePtr = make_shared<Mat>(dataHeight, dataWidth, CV_MAKETYPE(CV_16U,channels));
+		break;
+	}
 
 	auto pow2 = [](unsigned v) { int p = 2; while (v >>= 1) p <<= 1; return p; };
     POTWidth = std::max(dataWidth, pow2(dataWidth));
@@ -125,12 +133,23 @@ struct GLTexture {
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR ); 
 
-	std::vector<GLubyte> pixels(POTWidth * POTHeight * channels);
+	void* pixels = nullptr;
+	if (type == GL_UNSIGNED_BYTE) 
+		pixels = calloc(POTWidth * POTHeight * channels, sizeof(uint8_t));
+	else if (type == GL_UNSIGNED_SHORT) 
+		pixels = calloc(POTWidth * POTHeight * channels, sizeof(uint16_t));
+
+	//}  else  {
+	//	std::vector<GLshort> pixels(POTWidth * POTHeight * channels);
+	//}
+
 	GLint internalFormat = GL_RGBA;
 	if (format == GL_LUMINANCE)
 		internalFormat = GL_LUMINANCE;
 	
-	glTexImage2D( GL_TEXTURE_2D, 0, internalFormat, POTWidth, POTHeight, 0, format, type, &pixels[0] );
+	glTexImage2D( GL_TEXTURE_2D, 0, internalFormat, POTWidth, POTHeight, 0, format, type, pixels );
+	if (pixels)
+		free(pixels);
 	err = glGetError();
     glBindTexture( GL_TEXTURE_2D, 0 );
   }
@@ -394,6 +413,8 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 int main(int, char**)
 {
     double time = 0;
+	void* buf = nullptr;
+	
 	// init opengl and imgui
     initOpenGL();
 	//set keyboard callback
@@ -417,8 +438,8 @@ int main(int, char**)
 		createGUI();
         
 		if ( cameraParameters.startStreaming ) {
-			eye->init( cameraParameters.width, cameraParameters.height, (uint16_t) cameraParameters.fps, PS3EYECam::EOutputFormat::Bayer );
-			
+			eye->init( cameraParameters.width, cameraParameters.height, (uint16_t) cameraParameters.fps, PS3EYECam::EOutputFormat::RAW8 );
+			//buf = (void*)calloc(cameraParameters.width * cameraParameters.height * eye->getOutputBytesPerPixel(), sizeof(uint8_t));
 			rgbTexture.init( cameraParameters.width, cameraParameters.height, 3, GL_RGB, GL_UNSIGNED_BYTE);
 			grayTexture.init( cameraParameters.width, cameraParameters.height, 1, GL_LUMINANCE, GL_UNSIGNED_BYTE);
 			cameraParameters.bayerRAW8 = make_shared<Mat>(cameraParameters.height, cameraParameters.width, CV_MAKETYPE(CV_8U, 1));
@@ -429,25 +450,32 @@ int main(int, char**)
 		}
 
 		if ( eye && eye->isStreaming() ) {
+			
+			rgbTexture.displayTexture = false;
+			grayTexture.displayTexture = false;
+
 			eye->getFrame( (uint8_t*)cameraParameters.bayerRAW8->data );
+			//eye->getFrame( (uint8_t*)buf );
 
 			switch ( cameraParameters.view_mode) { 
 			case 0: // Gray
 				grayTexture.displayTexture = true;
 				rgbTexture.displayTexture = false;
-				cvtColor( *cameraParameters.bayerRAW8, *grayTexture.imagePtr, CV_BayerGB2GRAY );
+				cvtColor( *cameraParameters.bayerRAW8, *grayTexture.imagePtr, COLOR_BayerGB2GRAY );
+
 				break;
 
 			case 1: // color
 				grayTexture.displayTexture = false;
 				rgbTexture.displayTexture = true;
-				cvtColor( *cameraParameters.bayerRAW8, *rgbTexture.imagePtr, CV_BayerGB2RGB );
+				cvtColor( *cameraParameters.bayerRAW8, *rgbTexture.imagePtr, COLOR_BayerGB2RGB );
+
 				break;
 
 			case 2: // luminance threshold
 				grayTexture.displayTexture = true;
 				rgbTexture.displayTexture = false;
-				cvtColor( *cameraParameters.bayerRAW8, *grayTexture.imagePtr, CV_BayerGB2GRAY );
+				cvtColor( *cameraParameters.bayerRAW8, *grayTexture.imagePtr, COLOR_BayerGB2GRAY );
 				threshold(*grayTexture.imagePtr, *grayTexture.imagePtr, opencvParams.luminance.min, opencvParams.luminance.max, THRESH_TOZERO);
 				break;
 
@@ -455,9 +483,9 @@ int main(int, char**)
 				
 				grayTexture.displayTexture = true;
 				rgbTexture.displayTexture = false;
-				cvtColor( *cameraParameters.bayerRAW8, *rgbTexture.imagePtr, CV_BayerGB2RGB );
+				cvtColor( *cameraParameters.bayerRAW8, *rgbTexture.imagePtr, COLOR_BayerGB2RGB );
 				Mat HSVImage = Mat( rgbTexture.imagePtr->rows, rgbTexture.imagePtr->cols, CV_MAKETYPE(CV_8U, 3));
-				cvtColor( *rgbTexture.imagePtr, HSVImage, CV_RGB2HSV);
+				cvtColor( *rgbTexture.imagePtr, HSVImage, COLOR_RGB2HSV);
 				inRange( HSVImage, Scalar(opencvParams.hue.min, opencvParams.saturation.min, opencvParams.value.min), Scalar(opencvParams.hue.max, opencvParams.saturation.max, opencvParams.value.max), *grayTexture.imagePtr);
 				break;
 
@@ -467,10 +495,11 @@ int main(int, char**)
 			grayTexture.glUpdate();
 			rgbTexture.glUpdate();
 		}
-
         render();
     }
-	
+	if( buf )
+		free(buf);
+
 	if ( eye && eye->isStreaming() )
 		eye->stop();
     
