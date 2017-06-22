@@ -1,77 +1,43 @@
 #include "GLFWMain.h"
 
+#include "opencv2/core.hpp"
+#include "opencv2/imgproc.hpp";;
+
 void openCVThreadFunc()
 {
 
 	cv::Mat bayerRaw( eye->getHeight(), eye->getWidth(), CV_8UC1 ); 
-	cv::Mat temp( eye->getHeight(), eye->getWidth(), CV_8UC1 );
-	cv::Mat temp2( eye->getHeight(), eye->getWidth(), CV_8UC3 );
-	cv::Mat greyImage( 480, 640, CV_8UC1 );
-	//Mat greyMask( eye->getHeight(), eye->getWidth(), CV_8UC1 );
-	cv::Mat greyMask( 480, 640, CV_8UC1 );
-	//Mat rgbImage( eye->getHeight(), eye->getWidth(), CV_8UC3 );
-	cv::Mat rgbImage( 480, 640, CV_8UC3 );
-	//Mat hsvImage( 480, 640, CV_8UC3 );
-	std::vector<std::vector<cv::Point> > contours;
-	std::vector<std::vector<cv::Point> > circles;
+	cv::Mat rgb, grey, mask;
 
 	grayTexture.data = nullptr;
 	rgbTexture.data = nullptr;
 
 	while ( eye && eye->isStreaming() ) {
 		eye->getFrame( (uint8_t*)bayerRaw.data );
+		cvtColor( bayerRaw, rgb, cv::COLOR_BayerGB2RGB );
+		cvtColor( bayerRaw, grey, cv::COLOR_BayerGB2GRAY );
 
+		switch ( opencvParams.mode ) {
+		case OpenCVParameters::CurrentMode::ONLY_STREAM : // show rgb image
 
-		switch ( cameraParameters.view_mode ) {
-		case 0: // show bayer image
-			if (eye->getWidth() == 320) {
-				resize(bayerRaw, greyImage, greyImage.size(), 0, 0, static_cast<cv::InterpolationFlags>(opencvParams.resizeInterpolation));
-				grayTexture.data = greyImage.data;
-			} else {
-				grayTexture.data = bayerRaw.data;
-			}
-			rgbTexture.data = nullptr;
+			
+			grayTexture.data = nullptr;
+			rgbTexture.data = rgb.data;
 			break;
 
-		case 1: // show grey image
-			cvtColor( bayerRaw, temp, cv::COLOR_BayerGB2GRAY );
-
-
-
-			if (eye->getWidth() == 320) {
-				resize(temp, greyImage, greyImage.size(), 0, 0, static_cast<cv::InterpolationFlags>(opencvParams.resizeInterpolation));
-			} else {
-				greyImage = temp;
-			}
-
-			grayTexture.data = greyImage.data;
-			rgbTexture.data = nullptr;
-			break;
-
-		case 2:	 // show bgr color image
-			cvtColor( bayerRaw, temp2, cv::COLOR_BayerGB2RGB );
-
-			if (eye->getWidth() == 320) {
-				resize(temp2, rgbImage, greyImage.size(), 0, 0, static_cast<cv::InterpolationFlags>(opencvParams.resizeInterpolation));
-			} else {
-				rgbImage = temp2;
-			}
+		case OpenCVParameters::CurrentMode::SETUP_POSITION : // show rgb image + position png
 
 			grayTexture.data = nullptr;
-			rgbTexture.data = rgbImage.data;
+			rgbTexture.data = rgb.data;
 			break;
 
-		case 3: // binary threshold of grey image
-			cvtColor( bayerRaw, temp, cv::COLOR_BayerGB2GRAY );
+		case OpenCVParameters::CurrentMode::BW_TRACKING: // binary threshold of grey image
+			// adjust brightness and contrast of grey image
 
-			// lock mutex
-			mtx.lock();
-			if (eye->getWidth() == 320) {
-				resize(temp, greyImage, greyImage.size(), 0, 0, static_cast<cv::InterpolationFlags>(opencvParams.resizeInterpolation));
-			} else {
-				greyImage = temp;
-			}
+			// binary threshold
 			threshold( greyImage, greyMask, opencvParams.binary.min, opencvParams.binary.max, cv::THRESH_BINARY );
+
+			// detect contours
 			contours.clear(); circles.clear();
 			
 			findContours( greyMask, contours, cv::RETR_LIST , cv::CHAIN_APPROX_SIMPLE);
@@ -95,25 +61,7 @@ void openCVThreadFunc()
 			mtx.unlock();
 			break;
 
-		case 4: // adaptive threshold of grey image
-			cvtColor( bayerRaw, temp, cv::COLOR_BayerGB2GRAY );
-			// lock mutex
-			mtx.lock();
-
-			if (eye->getWidth() == 320) {
-				resize(temp, greyImage, greyImage.size(), 0, 0, static_cast<cv::InterpolationFlags>(opencvParams.resizeInterpolation));
-			} else {
-				greyImage = temp;
-			}
-			adaptiveThreshold( greyImage, greyMask, opencvParams.gauss.maxValue, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY, opencvParams.gauss.blockSize, opencvParams.gauss.floatC );
-			grayTexture.data = greyMask.data;
-			rgbTexture.data = nullptr;
-
-			// unlock mutex
-			mtx.unlock();
-			break;
-
-		case 5: // red color threshold 
+		case OpenCVParameters::CurrentMode::COLOR_TRACKING: //  color tracking 
 
 			cvtColor( bayerRaw, temp2, cv::COLOR_BayerGB2RGB );
 
@@ -137,18 +85,7 @@ void openCVThreadFunc()
 			cv::addWeighted(lower_red_hue_range, 1.0, upper_red_hue_range, 1.0, 0.0, greyMask);
 
 			cv::GaussianBlur(greyMask, greyMask, cv::Size(9, 9), 2, 2);
-			/*
-			vector<Vec3f> circles;
-			HoughCircles(red_hue_image, circles, HOUGH_GRADIENT, 1, red_hue_image.rows/8, 100, 20, 0, 0);
 
-
-			for(size_t current_circle = 0; current_circle < circles.size(); ++current_circle) {
-			Point center(round(circles[current_circle][0]), round(circles[current_circle][1]));
-			int radius = round(circles[current_circle][2]);
-
-			circle(rgbImage, center, radius, Scalar(0, 255, 0), 5);
-			}
-			*/
 
 			grayTexture.data = greyMask.data;
 			rgbTexture.data = nullptr; //rgbImage.data;

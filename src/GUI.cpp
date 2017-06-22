@@ -1,5 +1,92 @@
 #include "GLFWMain.h"
-;;
+
+void createMenu()
+{
+
+    // Menu
+    if (ImGui::BeginMenuBar())
+    {
+        if (ImGui::BeginMenu("File"))
+        {
+					ImGui::MenuItem("(dummy menu)", NULL, false, false);
+					if (ImGui::MenuItem("New")) {}
+					if (ImGui::MenuItem("Open", "Ctrl+O")) {}
+					if (ImGui::BeginMenu("Open Recent"))
+					{
+							ImGui::MenuItem("fish_hat.c");
+							ImGui::MenuItem("fish_hat.inl");
+							ImGui::MenuItem("fish_hat.h");
+							if (ImGui::BeginMenu("More.."))
+							{
+									ImGui::MenuItem("Hello");
+									ImGui::MenuItem("Sailor");
+									if (ImGui::BeginMenu("Recurse.."))
+									{
+											ShowExampleMenuFile();
+											ImGui::EndMenu();
+									}
+									ImGui::EndMenu();
+							}
+							ImGui::EndMenu();
+					}
+					if (ImGui::MenuItem("Save", "Ctrl+S")) {}
+					if (ImGui::MenuItem("Save As..")) {}
+					ImGui::Separator();
+					if (ImGui::BeginMenu("Options"))
+					{
+							static bool enabled = true;
+							ImGui::MenuItem("Enabled", "", &enabled);
+							ImGui::BeginChild("child", ImVec2(0, 60), true);
+							for (int i = 0; i < 10; i++)
+									ImGui::Text("Scrolling Text %d", i);
+							ImGui::EndChild();
+							static float f = 0.5f;
+							static int n = 0;
+							ImGui::SliderFloat("Value", &f, 0.0f, 1.0f);
+							ImGui::InputFloat("Input", &f, 0.1f);
+							ImGui::Combo("Combo", &n, "Yes\0No\0Maybe\0\0");
+							ImGui::EndMenu();
+					}
+					if (ImGui::BeginMenu("Help"))
+					{
+							for (int i = 0; i < ImGuiCol_COUNT; i++)
+									ImGui::MenuItem(ImGui::GetStyleColName((ImGuiCol)i));
+							ImGui::EndMenu();
+					}
+					if (ImGui::BeginMenu("Disabled", false)) // Disabled
+					{
+							IM_ASSERT(0);
+					}
+					if (ImGui::MenuItem("Checked", NULL, true)) {}
+					if (ImGui::MenuItem("Quit", "Alt+F4")) {}
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Examples"))
+        {
+            ImGui::MenuItem("Main menu bar", NULL, &show_app_main_menu_bar);
+            ImGui::MenuItem("Console", NULL, &show_app_console);
+            ImGui::MenuItem("Log", NULL, &show_app_log);
+            ImGui::MenuItem("Simple layout", NULL, &show_app_layout);
+            ImGui::MenuItem("Property editor", NULL, &show_app_property_editor);
+            ImGui::MenuItem("Long text display", NULL, &show_app_long_text);
+            ImGui::MenuItem("Auto-resizing window", NULL, &show_app_auto_resize);
+            ImGui::MenuItem("Constrained-resizing window", NULL, &show_app_constrained_resize);
+            ImGui::MenuItem("Simple overlay", NULL, &show_app_fixed_overlay);
+            ImGui::MenuItem("Manipulating window title", NULL, &show_app_manipulating_window_title);
+            ImGui::MenuItem("Custom rendering", NULL, &show_app_custom_rendering);
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Help"))
+        {
+            ImGui::MenuItem("Metrics", NULL, &show_app_metrics);
+            ImGui::MenuItem("Style Editor", NULL, &show_app_style_editor);
+            ImGui::MenuItem("About ImGui", NULL, &show_app_about);
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenuBar();
+    }
+
+}
 
 
 void createGUI()
@@ -37,25 +124,45 @@ void createGUI()
 	// camera connected and not streaming
 
 	if ( eye && !eye->isStreaming() ) {
+		ImGui::Begin("Ready to start tracking");
+		ImGui::Text("PS3 EYE camera is connected to PC. Press button below to setup camera position and start tracking. MIDI and other options can be adjusted from menu\n\n");
+		if ( ImGui::Button("Setup camera position") ) {
+			startCamera();
+			opencvParams.mode = OpenCVParameters::CurrentMode::SETUP_POSITION;
+		}
+		ImGui::End();
+	}
 
-		ImGui::Begin("Select PS3 EYE camera settings");
 
-		ImGui::Text("Please select camera parameters to start streaming:\n\n");
 
-		// camera resolution
-		static int camera_res = 0; // VGA
-		static int camera_fps = 10;
+	if ( guiParams.showCameraOptions ) {
 
-		if ( ImGui::Combo("Camera resolution", &camera_res, "VGA\0QVGA\0") )
-			camera_fps = 10;
+		ImGui::Begin("Select PS3 EYE camera options");
 
-		// camera fps
+		ImGui::Text("Please select camera parameters:\n\n");
 
 		const char* vga_rates[] = { "2", "3", "5", "8", "10", "15", "20", "25", "30", "40", "50", "60", "75", "83" };    
 
 		const char* qvga_rates[] = { "2", "3", "5", "7", "10", "12", "15", "17", "30", "37", "40", "50", "60", "75", "90", "100", "125", "137", "150", "187", "205", "290" };
 
+		// camera resolution
+		int camera_res = cameraParameters.width == 640 ? 0 : 1;
+		int camera_fps = 0;
 
+		if ( camera_res == 0 ) {
+			while( camera_fps < IM_ARRAYSIZE(vga_rates) ) {
+				if ( atoi(vga_rates[camera_fps++]) == cameraParameters.fps ) 
+					break;
+			}
+		} else {
+			while( camera_fps < IM_ARRAYSIZE(qvga_rates) ) {
+				if ( atoi(qvga_rates[camera_fps++]) == cameraParameters.fps ) 
+					break;
+			}
+		}
+
+
+		if ( ImGui::Combo("Camera resolution", &camera_res, "VGA\0QVGA\0") )
 
 		if ( camera_res == 0 ) // VGA
 			ImGui::Combo("Camera fps: ", &camera_fps, vga_rates, IM_ARRAYSIZE(vga_rates));
@@ -64,7 +171,10 @@ void createGUI()
 			ImGui::Combo("Camera fps: ", &camera_fps, qvga_rates, IM_ARRAYSIZE(qvga_rates));
 
 		// start streaming button
-		if ( ImGui::Button("Start streaming") ) {
+		if ( ImGui::Button("Apply") ) {
+
+			bool wasStreaming = eye && eye->isStreaming();
+			stopCamera();
 
 			switch (camera_res) {
 			case 0: // VGA
@@ -79,24 +189,15 @@ void createGUI()
 				break;
 			}
 
-			eye->init( cameraParameters.width, cameraParameters.height, (uint16_t) cameraParameters.fps, ps3eye::PS3EYECam::EOutputFormat::RAW8 );
+			findCamera();
+			if ( wasStreaming )
+				startCamera();
 
-			eye->start(); // start camera thread
-			cameraParameters.update( true ); // refresh all camera parameters
 
-			// init and create texture
-			//grayTexture.init( eye->getWidth(), eye->getHeight(), GL_LUMINANCE );
-			grayTexture.init( 640, 480, GL_LUMINANCE );
-			//rgbTexture.init( eye->getWidth(), eye->getHeight(), GL_RGB );
-			rgbTexture.init( 640, 480, GL_RGB );
+		} // ImGui::Button("Apply")
 
-			grayTexture.glCreateTexture();
-			rgbTexture.glCreateTexture();
-
-			// start opencv thread
-			startOpenCVThread();
-
-		} // ImGui::Button("Start streaming")
+		if ( ImGui::Button("Cancell") ) {
+		}
 
 		ImGui::End(); // end modal dialog
 		return;

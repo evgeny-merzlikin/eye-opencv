@@ -1,20 +1,48 @@
 #include "GLFWMain.h"
-namespace cv {};;
+
 // global vars
 
 OpenCVParameters opencvParams;
 PS3EyeParameters cameraParameters;
+GUIParameters guiParams;
 ps3eye::PS3EYECam::PS3EYERef eye;
 GLFWwindow* window;
 LPVM_MIDI_PORT MIDIport;
-std::mutex mtx;  
-int framerate;
-int framecount;
 GLTexture grayTexture, rgbTexture;
 
 void startCamera()
 {
+		if ( !eye )
+			return;
+			
+		eye->init( cameraParameters.width, cameraParameters.height, (uint16_t) cameraParameters.fps, ps3eye::PS3EYECam::EOutputFormat::RAW8 );
 
+		eye->start(); // start camera thread
+		cameraParameters.update( true ); // refresh all camera parameters
+
+		// init and create texture
+		grayTexture.init( eye->getWidth(), eye->getHeight(), GL_LUMINANCE );
+		rgbTexture.init( eye->getWidth(), eye->getHeight(), GL_RGB );
+
+		grayTexture.glCreateTexture();
+		rgbTexture.glCreateTexture();
+
+		// start opencv thread
+		startOpenCVThread();
+
+}
+
+void stopCamera()
+{
+	if ( !eye )
+		return;
+
+	if ( eye->isStreaming() ) {
+		eye->stop();
+		eye.reset();
+		grayTexture.glDestroyTexture();
+		rgbTexture.glDestroyTexture();
+	}
 
 }
 
@@ -22,9 +50,10 @@ void findCamera()
 {
 	std::vector<ps3eye::PS3EYECam::PS3EYERef> devices = ps3eye::PS3EYECam::getDevices(true);
 
-	if ( devices.size() > 0 ) {
-		eye = devices.at(0);
-		startCamera();
+	if ( !eye ) {
+		if ( devices.size() > 0 ) {
+			eye = devices.at(0);
+		}
 	}
 }
 
@@ -73,15 +102,12 @@ int main(int, char**)
 		
 	}
 	
-	if ( eye && eye->isStreaming() )
-		eye->stop();
+	stopCamera();
 
-	grayTexture.glDestroyTexture();
-	rgbTexture.glDestroyTexture();
+
 
 	terminateOpenGL();
 	destroyMIDIPort();
-
 
 	return 0;
 }

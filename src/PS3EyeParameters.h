@@ -4,6 +4,8 @@
 #include "GLFWMain.h"
 
 struct PS3EyeParameters {
+	
+	PS3EyeParameters(): width (320), height(240), fps (125){}
 
 	bool autoGain;
 	bool autoExposure;    

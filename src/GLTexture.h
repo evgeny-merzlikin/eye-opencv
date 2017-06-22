@@ -1,12 +1,7 @@
 #ifndef _GLTEXTURE_H_
 #define _GLTEXTURE_H_
 
-#include "GLFW/glfw3.h"
-#include <algorithm>
-#include <vector>
-#include <mutex>
-
-extern std::mutex mtx;
+#include "GLFWMain.h"
 
 struct GLTexture {
 	GLTexture(): data(nullptr) {}
@@ -27,8 +22,8 @@ struct GLTexture {
 
 		auto pow2 = [](unsigned v) { int p = 2; while (v >>= 1) p <<= 1; return p; };
 
-		POTWidth = std::max(dataWidth, pow2(dataWidth));
-		POTHeight = std::max(dataHeight, pow2(dataHeight));
+		POTWidth = max(dataWidth, pow2(dataWidth));
+		POTHeight = max(dataHeight, pow2(dataHeight));
 
 		u = (float) dataWidth / (float) POTWidth;
 		v = (float) dataHeight / (float) POTHeight;
@@ -104,14 +99,12 @@ struct GLTexture {
 	int dataWidth, dataHeight; 
 
 	int channels;
+	std::mutex mtx;  
 
 	GLfloat u, v;
-
-
 	GLvoid* data;
 	GLint format; 
 	GLuint ID;    
-
 };
 
 #endif

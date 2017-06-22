@@ -12,12 +12,14 @@
 #include "ps3eye.h"
 #include "GLFW/glfw3.h"
 #include "teVirtualMIDI.h"
-#include "opencv2/opencv.hpp"
-namespace cv {}
+
+//#include "opencv2/core.hpp"
+//#include "opencv2/improc.hpp"
 
 #include "GLTexture.h"
 #include "PS3EyeParameters.h"
 #include "OpenCVParameters.h"
+#include "GUIParameters.h"
 
 #define MAX_SYSEX_BUFFER	65535
 #define IM_ARRAYSIZE(_ARR)  ((int)(sizeof(_ARR)/sizeof(*_ARR)))
@@ -27,11 +29,17 @@ namespace cv {}
 
 extern OpenCVParameters opencvParams;
 extern PS3EyeParameters cameraParameters;
+extern GUIParameters guiParams;
 extern ps3eye::PS3EYECam::PS3EYERef eye;
 extern GLFWwindow* window;
 extern LPVM_MIDI_PORT MIDIport;
 extern std::mutex mtx;  
 extern GLTexture grayTexture, rgbTexture;
+
+//camera
+void startCamera();
+void stopCamera();
+void findCamera();
 
 //opencv 
 void startOpenCVThread();
@@ -49,7 +57,6 @@ inline double round(double value) { return value < 0 ? -std::floor(0.5 - value) 
 inline double round(float value) { return value < 0 ? -std::floor(0.5 - value) : std::floor(0.5 + value); }
 
 // midi functions - MIDI.cpp
-void sendMidiNote(unsigned char channel, unsigned char pitch, unsigned char volume);
 void sendMidiNoteOn(unsigned char channel, unsigned char pitch, unsigned char volume);
 void createMIDIPort();
 void destroyMIDIPort();
